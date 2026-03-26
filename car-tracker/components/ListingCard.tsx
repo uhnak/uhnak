@@ -24,18 +24,35 @@ function relativeTime(dateStr: string): string {
 
 interface Props {
   listing: Listing;
+  eurRate: number | null;
   onDelete: (id: string) => void;
   onCheck: (id: string) => void;
+  onUpdate: (id: string, tags: string[], note: string) => Promise<void>;
 }
 
-export function ListingCard({ listing, onDelete, onCheck }: Props) {
+export function ListingCard({ listing, eurRate, onDelete, onCheck, onUpdate }: Props) {
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editTags, setEditTags] = useState(parseTags(listing.tags).join(", "));
+  const [editNote, setEditNote] = useState(listing.note ?? "");
 
   const tags = parseTags(listing.tags);
   const activePrice = listing.currentPrice ?? listing.savedPrice;
   const delta = priceDelta(listing.savedPrice, listing.currentPrice);
   const isGone = listing.status === "gone";
+
+  // EUR conversion for CZK listings
+  const eurEquiv =
+    listing.currency === "CZK" && eurRate
+      ? Math.round(activePrice * eurRate)
+      : null;
+
+  const savedEurEquiv =
+    listing.currency === "CZK" && eurRate && listing.savedPrice !== activePrice
+      ? Math.round(listing.savedPrice * eurRate)
+      : null;
 
   async function handleCheck() {
     setChecking(true);
@@ -48,6 +65,23 @@ export function ListingCard({ listing, onDelete, onCheck }: Props) {
     setDeleting(true);
     await onDelete(listing.id);
     setDeleting(false);
+  }
+
+  async function handleSaveEdit() {
+    setSaving(true);
+    const tagList = editTags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    await onUpdate(listing.id, tagList, editNote);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  function handleCancelEdit() {
+    setEditTags(parseTags(listing.tags).join(", "));
+    setEditNote(listing.note ?? "");
+    setEditing(false);
   }
 
   return (
@@ -95,29 +129,49 @@ export function ListingCard({ listing, onDelete, onCheck }: Props) {
                 {tag}
               </span>
             ))}
+            <button
+              onClick={() => setEditing(!editing)}
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-surface-3 text-zinc-600 hover:text-zinc-300 border border-border transition-colors"
+              title="Edit tags & note"
+            >
+              {editing ? "✕" : "✎"}
+            </button>
           </div>
         </div>
       </div>
 
       {/* Price row */}
-      <div className="flex items-baseline gap-2">
-        <span className="text-lg font-bold text-white">
-          {formatPrice(activePrice, listing.currency)}
-        </span>
-        {delta !== null && delta !== 0 && (
-          <>
-            <span className="text-sm text-zinc-500 line-through">
-              {formatPrice(listing.savedPrice, listing.currency)}
-            </span>
-            <span
-              className={`text-sm font-medium ${
-                delta < 0 ? "text-green-400" : "text-amber-400"
-              }`}
-            >
-              {delta < 0 ? "↓" : "↑"}
-              {formatPrice(Math.abs(delta), listing.currency)}
-            </span>
-          </>
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-lg font-bold text-white">
+            {formatPrice(activePrice, listing.currency)}
+          </span>
+          {delta !== null && delta !== 0 && (
+            <>
+              <span className="text-sm text-zinc-500 line-through">
+                {formatPrice(listing.savedPrice, listing.currency)}
+              </span>
+              <span
+                className={`text-sm font-medium ${
+                  delta < 0 ? "text-green-400" : "text-amber-400"
+                }`}
+              >
+                {delta < 0 ? "↓" : "↑"}
+                {formatPrice(Math.abs(delta), listing.currency)}
+              </span>
+            </>
+          )}
+        </div>
+        {/* EUR equivalent for CZK listings */}
+        {eurEquiv !== null && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">≈ {formatPrice(eurEquiv, "EUR")}</span>
+            {savedEurEquiv !== null && delta !== null && delta !== 0 && (
+              <span className="text-xs text-zinc-600">
+                (was ≈ {formatPrice(savedEurEquiv, "EUR")})
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -127,11 +181,54 @@ export function ListingCard({ listing, onDelete, onCheck }: Props) {
         {listing.location && <span>{listing.location}</span>}
       </div>
 
-      {/* Note */}
-      {listing.note && (
+      {/* Note (view mode) */}
+      {listing.note && !editing && (
         <p className="text-xs text-zinc-400 italic border-l-2 border-zinc-700 pl-2">
           {listing.note}
         </p>
+      )}
+
+      {/* Inline edit panel */}
+      {editing && (
+        <div className="flex flex-col gap-2 pt-1 border-t border-border">
+          <div>
+            <label className="text-xs text-zinc-500 block mb-1">
+              Tags <span className="text-zinc-700">(comma-separated)</span>
+            </label>
+            <input
+              type="text"
+              value={editTags}
+              onChange={(e) => setEditTags(e.target.value)}
+              placeholder="GTI, maybe, negotiated"
+              className="w-full bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 block mb-1">Note</label>
+            <textarea
+              value={editNote}
+              onChange={(e) => setEditNote(e.target.value)}
+              placeholder="Personal note..."
+              rows={2}
+              className="w-full bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSaveEdit}
+              disabled={saving}
+              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium py-1.5 rounded-lg transition-colors"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              onClick={handleCancelEdit}
+              className="px-3 text-xs text-zinc-400 hover:text-white bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Footer */}
