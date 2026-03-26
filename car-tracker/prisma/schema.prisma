@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Listing {
+  id           String   @id @default(cuid())
+  url          String   @unique
+  source       String   // "sauto" | "autobazar"
+  title        String
+  savedPrice   Int      // price when first added (in minor currency units, e.g. hellers)
+  currentPrice Int?     // latest scraped price
+  currency     String   @default("CZK")
+  mileage      String?
+  location     String?
+  thumbnail    String?
+  status       String   @default("live") // "live" | "price_drop" | "price_increase" | "gone"
+  tags         String?  // JSON array string, e.g. '["GTI","maybe"]'
+  note         String?
+  createdAt    DateTime @default(now())
+  lastChecked  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
